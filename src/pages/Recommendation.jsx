@@ -1,64 +1,64 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { IoTimeOutline, IoWalkOutline, IoStarSharp, IoChevronBack, IoChevronForward } from 'react-icons/io5'
-
-const MOCK_PLACES = [
-  {
-    name: '엽서가게 살림',
-    category: '소품샵',
-    walking_time: 5,
-    stay_time: 20,
-    total_time: 30,
-    rating: 4.3,
-    review_count: 128,
-    image_url: null,
-    reason: '조용한 실내 소품샵으로 혼자 둘러보기 좋아요. 도보 5분 거리라 여유있게 다녀올 수 있어요.',
-  },
-  {
-    name: '카페 모자이크',
-    category: '카페',
-    walking_time: 4,
-    stay_time: 25,
-    total_time: 33,
-    rating: 4.5,
-    review_count: 342,
-    image_url: null,
-    reason: '구경·놀거리 후보가 부족해 안전한 대체 장소로 추천드려요. 레몬 타르트가 유명한 조용한 카페예요.',
-  },
-  {
-    name: '연남 작은 공원',
-    category: '공원',
-    walking_time: 7,
-    stay_time: 15,
-    total_time: 29,
-    rating: 4.1,
-    review_count: 89,
-    image_url: null,
-    reason: '날씨가 맑아서 잠깐 바람 쐬기 좋은 조용한 공원이에요.',
-  },
-]
+import { fetchRecommendation } from '../api/agent'
 
 export default function Recommendation() {
   const navigate = useNavigate()
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [isLoading, setIsLoading] = useState(false)
+  const [place, setPlace] = useState(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [avoid, setAvoid] = useState([])
 
   const session = JSON.parse(sessionStorage.getItem('session') || '{}')
-  const place = MOCK_PLACES[currentIndex]
   const waitingTime = session.waitingTime || 40
+  const preference = JSON.parse(localStorage.getItem('preference') || '{}')
+  const preferenceStr = Object.values(preference).join(', ')
 
-  // 남은 시간 계산
-const [elapsed] = useState(() => {
-  return session?.startedAt ? Math.floor((Date.now() - session.startedAt) / 1000 / 60) : 0
-})
-  const remaining = Math.max(waitingTime - elapsed, 0)
+  const [remaining] = useState(() => {
+    const elapsed = session?.startedAt ? Math.floor((Date.now() - session.startedAt) / 1000 / 60) : 0
+    return Math.max(waitingTime - elapsed, 0)
+  })
+
+  const fetchPlace = async (avoidList) => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const result = await fetchRecommendation({
+        waiting_place: session.waitingPlace || '',
+        latitude: session.latitude,
+        longitude: session.longitude,
+        waiting_time: remaining,
+        companion: session.companion || '혼자',
+        preference: preferenceStr,
+        avoid: avoidList.join(', '),
+        current_datetime: new Date().toISOString(),
+      })
+
+      if (result.status === 'fail') {
+        setError(result.fail_reason || '추천할 수 있는 장소를 찾지 못했어요.')
+        setPlace(null)
+      } else {
+        setPlace(result.places?.[0] || null)
+      }
+    } catch {
+      setError('추천을 불러오는 데 실패했어요. 다시 시도해줘요.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    const load = async () => {
+      await fetchPlace([])
+    }
+    load()
+  }, [])
 
   const handleOther = () => {
-    setIsLoading(true)
-    setTimeout(() => {
-      setCurrentIndex((prev) => (prev + 1) % MOCK_PLACES.length)
-      setIsLoading(false)
-    }, 1200)
+    const newAvoid = place ? [...avoid, place.name] : avoid
+    setAvoid(newAvoid)
+    fetchPlace(newAvoid)
   }
 
   const handleList = () => navigate('/list')
@@ -68,7 +68,7 @@ const [elapsed] = useState(() => {
     navigate('/detail')
   }
 
-  const budgetPercent = Math.min((place.total_time / waitingTime) * 100, 100)
+  const budgetPercent = place ? Math.min((place.total_time / remaining) * 100, 100) : 0
 
   if (isLoading) {
     return (
@@ -77,16 +77,37 @@ const [elapsed] = useState(() => {
         style={{ background: 'linear-gradient(160deg, #FDF6ED 0%, #F5ECD9 100%)', fontFamily: "'Pretendard', -apple-system, sans-serif" }}
       >
         <div className="text-4xl animate-spin">✦</div>
-        <p className="text-base font-semibold" style={{ color: '#A8978A' }}>다른 곳을 찾고 있어요...</p>
+        <p className="text-base font-semibold" style={{ color: '#A8978A' }}>막간을 찾고 있어요...</p>
+      </div>
+    )
+  }
+
+  if (error || !place) {
+    return (
+      <div
+        className="w-full min-h-screen flex flex-col items-center justify-center gap-5 px-8"
+        style={{ background: 'linear-gradient(160deg, #FDF6ED 0%, #F5ECD9 100%)', fontFamily: "'Pretendard', -apple-system, sans-serif", maxWidth: '390px', margin: '0 auto' }}
+      >
+        <div className="text-4xl">😔</div>
+        <p className="text-base font-semibold text-center" style={{ color: '#6B5A47' }}>
+          {error || '추천할 장소를 찾지 못했어요.'}
+        </p>
+        <button
+          onClick={() => navigate('/home')}
+          className="px-8 py-4 rounded-2xl text-sm font-bold text-white"
+          style={{ background: 'linear-gradient(135deg, #2C2416, #3D3020)' }}
+        >
+          홈으로 돌아가기
+        </button>
       </div>
     )
   }
 
   return (
     <div
-  className="w-full min-h-screen flex flex-col"
-  style={{ background: 'linear-gradient(160deg, #FDF6ED 0%, #F5ECD9 100%)', fontFamily: "'Pretendard', -apple-system, sans-serif", maxWidth: '390px', margin: '0 auto' }}
->
+      className="w-full min-h-screen flex flex-col"
+      style={{ background: 'linear-gradient(160deg, #FDF6ED 0%, #F5ECD9 100%)', fontFamily: "'Pretendard', -apple-system, sans-serif", maxWidth: '390px', margin: '0 auto' }}
+    >
       {/* 상단 네비 */}
       <div className="flex items-center justify-center relative px-5 pt-14 pb-4">
         <button
@@ -194,7 +215,7 @@ const [elapsed] = useState(() => {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-semibold" style={{ color: '#B0A090' }}>시간 예산</span>
                 <span className="text-xs font-bold" style={{ color: '#A07840' }}>
-                  {place.total_time}분 / {waitingTime}분
+                  {place.total_time}분 / {remaining}분
                 </span>
               </div>
               <div className="h-1.5 rounded-full overflow-hidden mb-1" style={{ background: '#EDE4D8' }}>
