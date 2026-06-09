@@ -1,22 +1,48 @@
-import { useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { IoChevronBack, IoWalkOutline, IoTimeOutline, IoStarSharp, IoLocationSharp, IoStorefrontOutline } from 'react-icons/io5'
+import { fetchPlaceDetail } from '../api/agent'
 
 export default function PlaceDetail() {
   const navigate = useNavigate()
   const mapRef = useRef(null)
-  const place = JSON.parse(sessionStorage.getItem('selectedPlace') || '{}')
+  const [place, setPlace] = useState(JSON.parse(sessionStorage.getItem('selectedPlace') || '{}'))
+  const [isLoading, setIsLoading] = useState(false)
+
   const session = JSON.parse(sessionStorage.getItem('session') || '{}')
   const waitingTime = session.waitingTime || 40
 
-  const budgetPercent = Math.min((place.total_time / waitingTime) * 100, 100)
+  const [remaining] = useState(() => {
+    const elapsed = session?.startedAt ? Math.floor((Date.now() - session.startedAt) / 1000 / 60) : 0
+    return Math.max(waitingTime - elapsed, 0)
+  })
 
+  // 전체 목록에서 진입한 경우 상세 API 호출
+  useEffect(() => {
+    const load = async () => {
+      if (!place.google_place_id || place.address) return // 이미 상세 데이터 있으면 스킵
+      setIsLoading(true)
+      try {
+        const result = await fetchPlaceDetail(place.google_place_id)
+        if (result.status === 'success' && result.places?.[0]) {
+          setPlace(result.places[0])
+        }
+      } catch {
+        // 상세 로딩 실패해도 기존 데이터로 표시
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    load()
+  }, [])
+
+  // 카카오맵 렌더링
   useEffect(() => {
     if (!place.latitude || !place.longitude) return
-    if (!window.kakao) return
 
-    window.kakao.maps.load(() => {
+    const loadMap = () => {
       const container = mapRef.current
+      if (!container) return
       const options = {
         center: new window.kakao.maps.LatLng(place.latitude, place.longitude),
         level: 3,
@@ -26,11 +52,30 @@ export default function PlaceDetail() {
         map,
         position: new window.kakao.maps.LatLng(place.latitude, place.longitude),
       })
-    })
+    }
+
+    if (window.kakao && window.kakao.maps) {
+      window.kakao.maps.load(loadMap)
+    } else {
+      const script = document.querySelector('script[src*="dapi.kakao.com/v2/maps"]')
+      if (script) script.addEventListener('load', () => window.kakao.maps.load(loadMap))
+    }
   }, [place.latitude, place.longitude])
 
-  const handleGo = () => {
-    navigate('/timer')
+  const budgetPercent = Math.min((place.total_time / remaining) * 100, 100)
+
+  const handleGo = () => navigate('/timer')
+
+  if (isLoading) {
+    return (
+      <div
+        className="w-full min-h-screen flex flex-col items-center justify-center gap-5"
+        style={{ background: 'linear-gradient(160deg, #FDF6ED 0%, #F5ECD9 100%)', fontFamily: "'Pretendard', -apple-system, sans-serif" }}
+      >
+        <div className="text-4xl animate-spin">✦</div>
+        <p className="text-base font-semibold" style={{ color: '#A8978A' }}>장소 정보를 불러오고 있어요...</p>
+      </div>
+    )
   }
 
   return (
@@ -56,44 +101,34 @@ export default function PlaceDetail() {
         <div
           ref={mapRef}
           className="w-full rounded-2xl overflow-hidden"
-          style={{
-            height: '180px',
-            background: 'linear-gradient(135deg, #F5E8D0, #EDD9B8)',
-            boxShadow: '0 2px 12px rgba(160,130,90,0.10)',
-          }}
+          style={{ height: '180px', background: 'linear-gradient(135deg, #F5E8D0, #EDD9B8)', boxShadow: '0 2px 12px rgba(160,130,90,0.10)' }}
         />
 
         {/* 장소 기본 정보 */}
         <div className="rounded-2xl p-5" style={{ background: '#FFFFFF', boxShadow: '0 2px 12px rgba(160,130,90,0.08)' }}>
 
-          {/* 카테고리 태그 */}
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold mb-3"
             style={{ background: '#F5F0E8', color: '#A07840' }}>
             <IoStorefrontOutline size={11} color="#C9A96E" />
             {place.category || '장소'}
           </div>
 
-          {/* 장소명 */}
           <h2 className="text-2xl font-extrabold mb-1" style={{ color: '#1C1917', letterSpacing: '-0.6px' }}>
             {place.name || '장소명'}
           </h2>
 
-          {/* 별점 */}
           <div className="flex items-center gap-1 mb-4">
             <IoStarSharp size={13} color="#C9A96E" />
             <span className="text-sm font-bold" style={{ color: '#1C1917' }}>{place.rating}</span>
             <span className="text-xs" style={{ color: '#B0A090' }}>리뷰 {place.review_count}</span>
           </div>
 
-          {/* 구분선 */}
           <div className="mb-4" style={{ height: '1px', background: '#F0EAE0' }} />
 
-          {/* 상세 정보 */}
           <div className="flex flex-col gap-3.5">
             {place.open_hours && (
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: '#F5F0E8' }}>
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#F5F0E8' }}>
                   <IoTimeOutline size={15} color="#C9A96E" />
                 </div>
                 <div>
@@ -105,8 +140,7 @@ export default function PlaceDetail() {
 
             {place.address && (
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: '#F5F0E8' }}>
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#F5F0E8' }}>
                   <IoLocationSharp size={15} color="#C9A96E" />
                 </div>
                 <div>
@@ -117,21 +151,19 @@ export default function PlaceDetail() {
             )}
 
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ background: '#F5F0E8' }}>
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#F5F0E8' }}>
                 <IoWalkOutline size={15} color="#C9A96E" />
               </div>
               <div>
                 <p className="text-xs font-semibold mb-0.5" style={{ color: '#B0A090' }}>이동시간</p>
                 <p className="text-sm font-semibold" style={{ color: '#1C1917' }}>
-                  도보 {place.walking_time}분 · 왕복 {place.walking_time * 2}분 소요
+                  도보 {place.walking_time}분 · 왕복 {(place.walking_time || 0) * 2}분 소요
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ background: '#F5F0E8' }}>
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#F5F0E8' }}>
                 <IoTimeOutline size={15} color="#C9A96E" />
               </div>
               <div>
@@ -147,7 +179,7 @@ export default function PlaceDetail() {
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-bold tracking-wide uppercase" style={{ color: '#B0A090' }}>예상 사용 시간</span>
             <span className="text-sm font-bold" style={{ color: '#A07840' }}>
-              {place.total_time}분 / 남은 {waitingTime}분
+              {place.total_time}분 / 남은 {remaining}분
             </span>
           </div>
           <div className="h-1.5 rounded-full overflow-hidden mb-2" style={{ background: '#EDE4D8' }}>
@@ -159,7 +191,7 @@ export default function PlaceDetail() {
           <div className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#C9A96E' }} />
             <p className="text-xs font-medium" style={{ color: '#C4B8A8' }}>
-              안전 마진 {waitingTime - (place.total_time || 0)}분
+              안전 마진 {remaining - (place.total_time || 0)}분
             </p>
           </div>
         </div>
