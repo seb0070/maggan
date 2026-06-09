@@ -26,7 +26,7 @@ export default function TimerBar() {
     return () => clearInterval(interval)
   }, [location.pathname])
 
-  const hideOn = ['/', '/home']
+  const hideOn = ['/', '/home', '/recommendation', '/list', '/detail', '/timer']
   if (hideOn.includes(location.pathname)) return null
   if (remainingSeconds === null) return null
 

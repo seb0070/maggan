@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import TimerBar from './components/TimerBar'
 import Onboarding from './pages/Onboarding'
 import Home from './pages/Home'
 import Recommendation from './pages/Recommendation'
@@ -9,6 +10,7 @@ import Timer from './pages/Timer'
 function App() {
   return (
     <BrowserRouter>
+      <TimerBar />
       <Routes>
         <Route path="/" element={<Onboarding />} />
         <Route path="/home" element={<Home />} />
